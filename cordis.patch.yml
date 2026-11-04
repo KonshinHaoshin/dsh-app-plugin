@@ -1,0 +1,5 @@
+# Installed and enabled as a DSH profile bundle.
+- insert:
+    - id: shelterhub-mobile-bridge
+      name: '@shelterhub/dsh-mobile-bridge'
+      config: {}

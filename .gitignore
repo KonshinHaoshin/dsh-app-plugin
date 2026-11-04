@@ -1,0 +1,10 @@
+node_modules/
+artifacts/
+*.tgz
+!releases/
+!releases/**/*.tgz
+.env
+.env.*
+._*
+.DS_Store
+.dsh-mobile-bridge/
