@@ -6,26 +6,26 @@ DeepSeek Harness 手机配套插件，提供局域网直连、公网中继、二
 
 ## 安装
 
-适用于已验证的 **DSH 0.2.0-rc.2**。本仓库根目录就是可安装的 DSH 组合包，已包含构建好的客户端文件，安装无需额外执行构建脚本。
+适用于 **DSH 0.2.0-rc.2 / 0.2.1-rc.5**。本仓库根目录就是可安装的 DSH 组合包，已包含构建好的客户端文件，安装无需额外执行构建脚本。
 
 在 DSH 侧边栏「插件」中安装以下地址：
 
 ```text
-github:KonshinHaoshin/dsh-app-plugin#v0.3.0
+github:KonshinHaoshin/dsh-app-plugin#v0.3.1
 ```
 
 或者使用 DSH 命令行：
 
 ```sh
-dsh plugin --profile desktop add github:KonshinHaoshin/dsh-app-plugin#v0.3.0
+dsh plugin --profile desktop add github:KonshinHaoshin/dsh-app-plugin#v0.3.1
 ```
 
 命令行的 `desktop` 应替换为实际使用的 profile；Web 版可用 `web`。安装后重启对应 DSH。包名保持为 `@shelterhub/dsh-mobile-bridge`，不需要发布到 npm 即可从 GitHub 安装。
 
-也可以下载本仓库 [v0.3.0 安装包](releases/v0.3.0/shelterhub-dsh-mobile-bridge-0.3.0.tgz)，再执行：
+也可以下载本仓库 [v0.3.1 安装包](releases/v0.3.1/shelterhub-dsh-mobile-bridge-0.3.1.tgz)，再执行：
 
 ```sh
-dsh plugin --profile desktop add /绝对路径/shelterhub-dsh-mobile-bridge-0.3.0.tgz
+dsh plugin --profile desktop add /绝对路径/shelterhub-dsh-mobile-bridge-0.3.1.tgz
 ```
 
 ## 配对手机
@@ -82,7 +82,8 @@ wss://dshapi.shelterhub.moe/connect
 
 ## 范围与兼容性
 
-- 兼容性验证基准为 DSH `0.2.0-rc.2`，依赖其 Remote Gateway、客户端模块系统和 ConfigEditor；其他版本需重新验证。
+- 适配 DSH `0.2.0-rc.2` 的 operator 和 `0.2.1-rc.5` 的显式 Peer 接口，依赖其 Remote Gateway、客户端模块系统和 ConfigEditor；其他版本需重新验证。
+- `0.3.1` 修复新版 DSH 配对成功后出现 `Cannot read properties of undefined (reading 'signal')` 的问题。已安装 `0.3.0` 的电脑请在插件页更新安装到 `v0.3.1` 并重启 DSH；保留原有连接配置，手机端无需重新安装。
 - 手机配对代表操作者权限，可访问该 DSH 的所有会话；没有多用户权限隔离。
 - 局域网 WS 为明文，仅适用于可信私人网络；公网使用 WSS，中继可读取转发内容，目前没有端到端加密。
 - 断线后手机重新订阅并读取完整基线；不会自动重发改变状态的操作。

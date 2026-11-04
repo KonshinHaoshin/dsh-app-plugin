@@ -35,8 +35,41 @@ test('channel isolates cancellation and blocks arbitrary administrative endpoint
 });
 test('DSH adapter derives the real named arguments and retains host validation',async()=>{
  let request;const operator={};const ctx={connection:{operator},typert:{local:{get:endpoint=>({parameters:endpoint==='session/modelCatalog'?[]:[{wire:endpoint==='session/list'?'_request':'request',source:'json'}]})}},typertGateway:{async invoke(req){request=req;return 'ok';},wireStream:{open(){}},dispatchRpc:async()=>({ok:true,value:undefined})}};
- const a=createHarnessAdapter(ctx);const signal=new AbortController().signal;
+ const a=(await createHarnessAdapter(ctx)).createClient();const signal=new AbortController().signal;
  await a.call('session/list',{},signal);assert.deepEqual(request.args,{_request:{}});assert.equal(request.peer,operator);assert.equal(request.signal,signal);
  await a.call('session/prompt',{mode:'queue'},signal);assert.deepEqual(request.args,{request:{mode:'queue'}});
  await assert.rejects(()=>a.call('credentials/read',{},signal));
+});
+
+test('rc.5 channels supply independent owner Peers to RPCs, streams and event answers',async()=>{
+ const peers=[];const seen=[];
+ class Peer {
+  constructor(ctx,options){assert.equal(ctx,context);this.principal=options.principal;this.controller=new AbortController();this.signal=this.controller.signal;peers.push(this);}
+  async dispose(){this.disposed=(this.disposed??0)+1;this.controller.abort();}
+ }
+ const verify=peer=>{assert.equal(peer.principal.kind,'owner');assert.equal(peer.signal.aborted,false);seen.push(peer);};
+ const context={connection:{createPeer:options=>new Peer(context,options)},typert:{local:{get:()=>({parameters:[]})}},typertGateway:{
+  invoke:async request=>{verify(request.peer);return 'ok';},
+  dispatchRpc:async(e,p,s,peer)=>{verify(peer);return {ok:true};},
+  wireStream:{open:async function*(e,p,u,peer,signal){verify(peer);yield {type:'ready'};await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));}}
+ }};
+ const adapter=createHarnessAdapter(context);
+ assert.equal(peers.length,0);
+ const first=createClientChannel(adapter,()=>true);const second=createClientChannel(adapter,()=>true);
+ await first.receive({type:'call',id:'list',endpoint:'session/list',params:{}});
+ await second.receive({type:'call',id:'catalog',endpoint:'session/modelCatalog',params:{}});
+ await first.receive({type:'call',id:'answer',endpoint:'$events/result',params:{}});
+ const stream=first.receive({type:'open',id:'events',endpoint:'$events',params:{}});
+ await new Promise(r=>setImmediate(r));
+ assert.deepEqual(seen,[peers[0],peers[1],peers[0],peers[0]]);
+ first.close();first.close();await stream;
+ assert.equal(peers[0].disposed,1);assert.equal(peers[0].signal.aborted,true);assert.equal(peers[1].signal.aborted,false);
+ await second.receive({type:'call',id:'still-live',endpoint:'session/list',params:{}});
+ second.close();assert.equal(peers[1].signal.aborted,true);
+});
+
+test('rc.2 retains the existing shared operator without disposing it',async()=>{
+ const operator={};const context={connection:{operator},typertGateway:{invoke:async()=>{},wireStream:{open(){}},dispatchRpc:async()=>{}},typert:{local:{get:()=>({parameters:[]})}}};
+ const adapter=createHarnessAdapter(context);
+ const channel=createClientChannel(adapter,()=>true);await channel.receive({type:'call',id:'models',endpoint:'session/modelCatalog',params:{}});channel.close();
 });

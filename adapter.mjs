@@ -1,12 +1,15 @@
 import { METHODS, STREAMS, record } from './protocol.mjs';
 
-// Pinned to the 0.2.0-rc.2 runtime shipped in the inspected desktop application.
-// All version-dependent DSH calls are kept in this file.
+// Keep version-dependent DSH calls here. rc.5 requires an explicit scoped Peer;
+// rc.2 supplies the shared connection.operator instead.
 export function createHarnessAdapter(ctx) {
   const gateway = ctx.typertGateway;
   if (!gateway || typeof gateway.invoke !== 'function' || typeof gateway.wireStream?.open !== 'function' || typeof gateway.dispatchRpc !== 'function') {
-    throw new Error('当前 DSH 版本没有兼容的 Remote Gateway，请使用已验证的 0.2.0-rc.2 运行时');
+    throw new Error('当前 DSH 版本没有兼容的 Remote Gateway，请使用已验证的 0.2.0-rc.2 或 0.2.1-rc.5 运行时');
   }
+  const scopedPeers = typeof ctx.connection.createPeer === 'function';
+  const operator = ctx.connection.operator;
+  if (!scopedPeers && operator === undefined) throw new Error('当前 DSH 缺少手机连接需要的 Peer 接口，请更新配套插件和 DSH');
   function argsFor(endpoint, params) {
     const descriptor = ctx.typert.local.get(endpoint);
     if (!descriptor) throw new Error(`当前 DSH 未启用 ${endpoint}`);
@@ -16,25 +19,35 @@ export function createHarnessAdapter(ctx) {
     return { [parameters[0].wire]: params };
   }
   return {
-    async call(endpoint, params, signal) {
-      if (!METHODS.has(endpoint)) throw new Error('手机端未开放此操作');
-      if (endpoint === '$events/result') {
-        const result = await gateway.dispatchRpc(endpoint, {args: params}, signal, ctx.connection.operator);
-        if (!result.ok) throw Object.assign(new Error(result.error.message), {code: result.error.code});
-        return result.value;
-      }
-      const [namespace, method] = endpoint.split('/');
-      return gateway.invoke({ namespace, method, args: argsFor(endpoint, params), signal, peer: ctx.connection.operator });
-    },
-    async stream(endpoint, params, signal) {
-      if (!STREAMS.has(endpoint)) throw new Error('手机端未开放此事件流');
-      return gateway.wireStream.open(endpoint, {args: endpoint === '$events' ? {} : argsFor(endpoint, params)}, empty(), ctx.connection.operator, signal);
+    createClient() {
+      // Only authenticated channels reach this factory. Each phone gets a distinct
+      // owner scope, disposed on disconnect so streams and event answers cannot leak.
+      const peer = scopedPeers ? ctx.connection.createPeer({principal: {kind: 'owner'}}) : operator;
+      return {
+        close: scopedPeers ? () => peer.dispose() : undefined,
+        async call(endpoint, params, signal) {
+          if (!METHODS.has(endpoint)) throw new Error('手机端未开放此操作');
+          if (endpoint === '$events/result') {
+            const result = await gateway.dispatchRpc(endpoint, {args: params}, signal, peer);
+            if (!result.ok) throw Object.assign(new Error(result.error.message), {code: result.error.code});
+            return result.value;
+          }
+          const [namespace, method] = endpoint.split('/');
+          return gateway.invoke({namespace, method, args: argsFor(endpoint, params), signal, peer});
+        },
+        async stream(endpoint, params, signal) {
+          if (!STREAMS.has(endpoint)) throw new Error('手机端未开放此事件流');
+          return gateway.wireStream.open(endpoint, {args: endpoint === '$events' ? {} : argsFor(endpoint, params)}, empty(), peer, signal);
+        }
+      };
     }
   };
 }
+
 async function* empty() {}
 
 export function createClientChannel(adapter, emit) {
+  adapter = adapter.createClient?.() ?? adapter;
   const pending = new Map();
   let closed = false;
   return {
@@ -64,6 +77,6 @@ export function createClientChannel(adapter, emit) {
         if (!closed && !control.signal.aborted) emit({type:'error',id:frame.id,error:{code:error.code ?? 'harness/error',message:error.message ?? 'DSH 请求失败'}});
       } finally { pending.delete(frame.id); }
     },
-    close() { closed = true; for (const control of pending.values()) control.abort(); pending.clear(); }
+    close() { if (closed) return; closed = true; for (const control of pending.values()) control.abort(); pending.clear(); void Promise.resolve(adapter.close?.()).catch(() => {}); }
   };
 }
