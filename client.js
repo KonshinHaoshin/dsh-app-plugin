@@ -94,7 +94,7 @@ function Settings() {
     "div",
     { className: "dsh-mobile-settings" },
     h("h2", null, "\u624B\u673A\u8FDE\u63A5"),
-    status && h("div", { className: "summary" }, h("span", null, "\u8BBE\u5907\uFF1A", h("b", null, status.name)), h("span", null, "\u516C\u7F51\uFF1A", h("b", null, status.relayConnected ? "\u5DF2\u8FDE\u63A5" : status.relayUrl ? "\u672A\u8FDE\u63A5" : "\u672A\u542F\u7528")), h("span", null, "\u5C40\u57DF\u7F51\uFF1A", h("b", null, status.lanEnabled ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528")), h("span", null, "\u624B\u673A\uFF1A", h("b", null, status.activeConnections))),
+    status && h("div", { className: "summary" }, h("span", null, "\u8BBE\u5907\uFF1A", h("b", null, status.name)), h("span", null, "\u516C\u7F51\uFF1A", h("b", null, status.relayConnected ? "\u5DF2\u8FDE\u63A5" : status.relayUrl ? "\u672A\u8FDE\u63A5" : "\u672A\u542F\u7528")), h("span", null, "\u5C40\u57DF\u7F51\uFF1A", h("b", null, status.lanEnabled ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528")), h("span", null, "\u624B\u673A\uFF1A", h("b", null, status.activeConnections)), h("span", null, "P2P\uFF1A", h("b", null, status.p2pConnections ?? 0))),
     h("div", { className: "modes" }, ...["public", "lan"].map((value) => h("button", { key: value, type: "button", className: mode === value ? "selected" : "", disabled: busy, onClick: () => {
       setMode(value);
       void refreshPair(value);

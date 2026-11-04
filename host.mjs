@@ -4,6 +4,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { MAX_FRAME, PROTOCOL_VERSION, allowedOrigin, digest, parseFrame, secretEqual, send } from './protocol.mjs';
 import { createClientChannel } from './adapter.mjs';
 import {createPairing,isLocalPairRequest,pairingPage} from './pairing.mjs';
+import {createHybridHost} from './hybrid-host.mjs';
 
 export async function startBridge(adapter, config) {
   if (!/^[a-zA-Z0-9_-]{3,80}$/.test(config.deviceId) || typeof config.token !== 'string' || config.token.length < 24) throw new Error('deviceId 需要 3–80 个字母数字，配对密钥至少 24 位');
@@ -57,12 +58,13 @@ export async function startBridge(adapter, config) {
   const heartbeat=setInterval(()=>{for(const ws of clients){if(ws.mobileAlive===false){ws.terminate();continue;}ws.mobileAlive=false;ws.ping();}},15000);heartbeat.unref();
   pairing=createPairing(config,server.address().port);
   let relay; let retry; let stopped = false; let attempt = 0;let relayReady=false;
+  const hybrid=createHybridHost(adapter,config,(clientId,body)=>!!relay&&send(relay,{type:'forward',clientId,body}));
   function connectRelay() {
     if (!config.relayUrl || stopped) return;
     const url = new URL(config.relayUrl);
     if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname))) throw new Error('公网中继必须使用 wss://');
     relay = new WebSocket(url,{maxPayload:MAX_FRAME});
-    relay.on('open',() => send(relay,{type:'host',deviceId:config.deviceId,hostSecret:config.relaySecret,tokenDigest:digest(config.token),name:config.name ?? hostname()}));
+    relay.on('open',() => send(relay,{type:'host',deviceId:config.deviceId,hostSecret:config.relaySecret,tokenDigest:digest(config.token),features:['p2p-v1'],name:config.name ?? hostname()}));
     relay.on('message',raw => {
       try {
         const frame = parseFrame(raw);
@@ -71,8 +73,9 @@ export async function startBridge(adapter, config) {
           const result=pairing.redeem(frame.code);
           send(relay,{type:'pair-result',requestId:frame.requestId,result:result??{type:'pair-error',message:'配对码已失效，请在电脑端刷新'}});return;
         }
-        if (frame.type === 'leave') {channels.get(frame.clientId)?.close();channels.delete(frame.clientId);return;}
+        if (frame.type === 'leave') {hybrid.leave(frame.clientId);channels.get(frame.clientId)?.close();channels.delete(frame.clientId);return;}
         if (frame.type !== 'forward' || typeof frame.clientId !== 'string') return;
+        if(hybrid.receive(frame.clientId,frame.body))return;
         let channel = channels.get(frame.clientId);
         if (!channel) {if (channels.size >= 20) return;channel=createClientChannel(adapter,body=>send(relay,{type:'forward',clientId:frame.clientId,body}));channels.set(frame.clientId,channel);}
         void channel.receive(frame.body);
@@ -81,16 +84,17 @@ export async function startBridge(adapter, config) {
     relay.on('error',()=>{});
     relay.on('close',() => {
       relayReady=false;
+      hybrid.relayLost();
       for (const channel of channels.values()) channel.close();channels.clear();
       if (!stopped) {retry=setTimeout(connectRelay, Math.min(1000*2**attempt++,15000));retry.unref();}
     });
   }
-  try {connectRelay();} catch(error) {clearInterval(heartbeat);await new Promise(resolve => server.close(resolve));throw error;}
+  try {connectRelay();} catch(error) {hybrid.close();clearInterval(heartbeat);await new Promise(resolve => server.close(resolve));throw error;}
   return {
     port:server.address().port,
-    status(){return {deviceId:config.deviceId,name:config.name??hostname(),lanEnabled:config.host==='0.0.0.0',port:server.address()?.port??config.port,relayUrl:config.relayUrl??'',relayConfigured:!!config.relaySecret,relayConnected:relayReady,activeConnections:authenticatedCount+channels.size};},
+    status(){return {deviceId:config.deviceId,name:config.name??hostname(),lanEnabled:config.host==='0.0.0.0',port:server.address()?.port??config.port,relayUrl:config.relayUrl??'',relayConfigured:!!config.relaySecret,relayConnected:relayReady,activeConnections:authenticatedCount+channels.size+hybrid.status().sessions,p2pConnections:hybrid.status().direct};},
     issuePairing:mode=>pairing.issue(mode),
     pairingStatus:id=>pairing.status(id),
-    async close() {stopped=true;clearInterval(heartbeat);clearTimeout(retry);pairing.clear();for(const channel of channels.values())channel.close();relay?.terminate();for(const client of clients)client.terminate();wss.close();await new Promise(resolve=>server.close(resolve));}
+    async close() {stopped=true;hybrid.close();clearInterval(heartbeat);clearTimeout(retry);pairing.clear();for(const channel of channels.values())channel.close();relay?.terminate();for(const client of clients)client.terminate();wss.close();await new Promise(resolve=>server.close(resolve));}
   };
 }
