@@ -36,7 +36,7 @@ export async function startBridge(adapter, config) {
     wss.handleUpgrade(req,socket,head,ws => wss.emit('connection',ws));
   });
   wss.on('connection', ws => {
-    clients.add(ws); let authenticated = false; let channel;
+    clients.add(ws);ws.mobileAlive=true;ws.on('pong',()=>{ws.mobileAlive=true;}); let authenticated = false; let channel;
     const timer = setTimeout(() => ws.close(1008,'配对超时'),5000); timer.unref();
     ws.on('error',()=>{});
     ws.on('message',raw => {
@@ -54,6 +54,7 @@ export async function startBridge(adapter, config) {
     ws.on('close',() => {clearTimeout(timer);clients.delete(ws);if(authenticated)authenticatedCount--;channel?.close();});
   });
   await new Promise((resolve,reject) => {server.once('error',reject);server.listen(config.port ?? 43821,config.host ?? '127.0.0.1',resolve);});
+  const heartbeat=setInterval(()=>{for(const ws of clients){if(ws.mobileAlive===false){ws.terminate();continue;}ws.mobileAlive=false;ws.ping();}},15000);heartbeat.unref();
   pairing=createPairing(config,server.address().port);
   let relay; let retry; let stopped = false; let attempt = 0;let relayReady=false;
   function connectRelay() {
@@ -84,12 +85,12 @@ export async function startBridge(adapter, config) {
       if (!stopped) {retry=setTimeout(connectRelay, Math.min(1000*2**attempt++,15000));retry.unref();}
     });
   }
-  try {connectRelay();} catch(error) {await new Promise(resolve => server.close(resolve));throw error;}
+  try {connectRelay();} catch(error) {clearInterval(heartbeat);await new Promise(resolve => server.close(resolve));throw error;}
   return {
     port:server.address().port,
     status(){return {deviceId:config.deviceId,name:config.name??hostname(),lanEnabled:config.host==='0.0.0.0',port:server.address()?.port??config.port,relayUrl:config.relayUrl??'',relayConfigured:!!config.relaySecret,relayConnected:relayReady,activeConnections:authenticatedCount+channels.size};},
     issuePairing:mode=>pairing.issue(mode),
     pairingStatus:id=>pairing.status(id),
-    async close() {stopped=true;clearTimeout(retry);pairing.clear();for(const channel of channels.values())channel.close();relay?.terminate();for(const client of clients)client.terminate();wss.close();await new Promise(resolve=>server.close(resolve));}
+    async close() {stopped=true;clearInterval(heartbeat);clearTimeout(retry);pairing.clear();for(const channel of channels.values())channel.close();relay?.terminate();for(const client of clients)client.terminate();wss.close();await new Promise(resolve=>server.close(resolve));}
   };
 }

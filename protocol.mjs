@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME = 8 * 1024 * 1024;
-export const METHODS = new Set(['session/list','session/create','session/prompt','session/cancel','session/rename','session/fork','session/modelCatalog','session/selectModel','session/page','session/projections','workspace/create','$events/result']);
+export const METHODS = new Set(['session/list','session/create','session/prompt','session/cancel','session/rename','session/fork','session/modelCatalog','session/selectModel','session/page','session/projections','session/attachment','fileUploads/upload','workspace/create','$events/result']);
 export const STREAMS = new Set(['$events','session/follow','session/control','workspace/follow']);
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export function secretEqual(a, b) {

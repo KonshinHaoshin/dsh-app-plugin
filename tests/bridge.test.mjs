@@ -73,3 +73,13 @@ test('rc.2 retains the existing shared operator without disposing it',async()=>{
  const adapter=createHarnessAdapter(context);
  const channel=createClientChannel(adapter,()=>true);await channel.receive({type:'call',id:'models',endpoint:'session/modelCatalog',params:{}});channel.close();
 });
+
+test('uploads resolve the receiving Agent through Gateway and heartbeat needs no request id',async()=>{
+ const operator={};let request;
+ const context={connection:{operator},typert:{local:{get:()=>({parameters:[{wire:'agentId',source:'lookup',lookup:'agent'},{wire:'request',source:'json'}]})}},typertGateway:{invoke:async r=>{request=r;return {receiptId:'receipt'};},wireStream:{open(){}},dispatchRpc:async()=>{}}};
+ const frames=[];const channel=createClientChannel(createHarnessAdapter(context),f=>{frames.push(f);return true;});
+ await channel.receive({type:'ping'});assert.deepEqual(frames,[{type:'pong'}]);
+ await channel.receive({type:'call',id:'upload',endpoint:'fileUploads/upload',params:{sessionId:'test-session',data:'aGk=',name:'notes.txt'}});
+ assert.deepEqual(request.args,{agentId:'test-session',request:{data:'aGk=',name:'notes.txt'}});assert.equal(request.peer,operator);assert.equal(frames.at(-1).value.receiptId,'receipt');
+ await channel.receive({type:'call',id:'bad',endpoint:'fileUploads/upload',params:{sessionId:'test-session',data:'aGk='}});assert.equal(frames.at(-1).type,'error');channel.close();
+});

@@ -1,4 +1,4 @@
-import { METHODS, STREAMS, record } from './protocol.mjs';
+import { METHODS, STREAMS, MAX_FRAME, record } from './protocol.mjs';
 
 // Keep version-dependent DSH calls here. rc.5 requires an explicit scoped Peer;
 // rc.2 supplies the shared connection.operator instead.
@@ -14,6 +14,13 @@ export function createHarnessAdapter(ctx) {
     const descriptor = ctx.typert.local.get(endpoint);
     if (!descriptor) throw new Error(`当前 DSH 未启用 ${endpoint}`);
     const parameters = descriptor.parameters;
+    if (endpoint === 'fileUploads/upload') {
+      const agent = parameters.find(p=>p.source==='lookup'&&p.lookup==='agent');
+      const request = parameters.find(p=>p.source==='json');
+      if(parameters.length!==2||!agent||!request)throw new Error('当前 DSH 附件接口不兼容');
+      if(typeof params.sessionId!=='string'||typeof params.data!=='string'||params.data.length>Math.ceil(4*1024*1024/3)*4||typeof params.name!=='string'||params.name.length>255)throw new Error('附件无效或超过 4 MB');
+      return {[agent.wire]:params.sessionId,[request.wire]:{data:params.data,name:params.name}};
+    }
     if (parameters.length === 0) return {};
     if (parameters.length !== 1 || parameters[0].source !== 'json') throw new Error(`不支持的 DSH 方法签名：${endpoint}`);
     return { [parameters[0].wire]: params };
@@ -33,7 +40,9 @@ export function createHarnessAdapter(ctx) {
             return result.value;
           }
           const [namespace, method] = endpoint.split('/');
-          return gateway.invoke({namespace, method, args: argsFor(endpoint, params), signal, peer});
+          const value=await gateway.invoke({namespace, method, args: argsFor(endpoint, params), signal, peer});
+          if(endpoint==='session/attachment'&&Buffer.byteLength(JSON.stringify(value))>MAX_FRAME-1024)throw new Error('图片过大，请在电脑端查看');
+          return value;
         },
         async stream(endpoint, params, signal) {
           if (!STREAMS.has(endpoint)) throw new Error('手机端未开放此事件流');
@@ -53,6 +62,7 @@ export function createClientChannel(adapter, emit) {
   return {
     async receive(frame) {
       if (closed || !record(frame)) return;
+      if (frame.type==='ping') {emit({type:'pong'});return;}
       if (typeof frame.id !== 'string' || frame.id.length > 128) return;
       if (frame.type === 'cancel') { pending.get(frame.id)?.abort(); return; }
       if (!['call','open'].includes(frame.type)) return;
